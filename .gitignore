@@ -80,7 +80,8 @@ out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+dist/*
+!dist/dualsubs-anywhere.user.js
 .output
 
 # Gatsby files
