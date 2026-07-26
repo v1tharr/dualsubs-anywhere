@@ -1,0 +1,13 @@
+{
+  "name": "dualsubs-anywhere",
+  "version": "0.1.0",
+  "description": "Overlay two subtitle tracks on top of any HTML5 video, on any site.",
+  "private": true,
+  "scripts": {
+    "test": "jest",
+    "build": "node build.js"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
