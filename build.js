@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const HEADER = `// ==UserScript==
-// @name         Dual Subtitles Anywhere
+// @name         Dual Subs Anywhere
 // @namespace    https://github.com/v1tharr/dualsubs-anywhere
 // @version      0.1.0
 // @description  Overlay two subtitle tracks (e.g. English + Russian) on top of any HTML5 video, on any site
