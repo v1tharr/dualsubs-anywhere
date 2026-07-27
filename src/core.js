@@ -10,9 +10,12 @@
 
   let topCues = [], bottomCues = [];
   let topOffset = 0, bottomOffset = 0;
+  let topFileName = null, bottomFileName = null;
+  let fontSize = 20;
   let topBox, bottomBox, wrap, currentVideo;
   let visible = true;
   let activeSlot = null; // 'top' | 'bottom' — which slot a zip-picker choice applies to
+  let refreshStatus = () => {}; // wired up once the panel exists
 
   function loadSaved(callback) {
     window.DualSubsStorage.get(STORAGE_KEY, (data) => {
@@ -21,6 +24,9 @@
         bottomCues = data.bottom || [];
         topOffset = data.topOffset || 0;
         bottomOffset = data.bottomOffset || 0;
+        topFileName = data.topFileName || null;
+        bottomFileName = data.bottomFileName || null;
+        fontSize = data.fontSize || 20;
         visible = data.visible !== false;
       }
       callback();
@@ -30,7 +36,9 @@
   function save() {
     window.DualSubsStorage.set(STORAGE_KEY, {
       top: topCues, bottom: bottomCues,
-      topOffset, bottomOffset, visible
+      topOffset, bottomOffset,
+      topFileName, bottomFileName,
+      fontSize, visible
     });
   }
 
@@ -53,17 +61,24 @@
         handleZip(file);
       } else {
         const reader = new FileReader();
-        reader.onload = () => applyCues(activeSlot, reader.result);
+        reader.onload = () => applyCues(activeSlot, reader.result, file.name);
+        reader.onerror = () => alert('Failed to read file: ' + file.name);
         reader.readAsText(file, 'utf-8');
       }
     };
     input.click();
   }
 
-  function applyCues(slot, text) {
+  function applyCues(slot, text, fileName) {
     const cues = parseSRT(text);
-    if (slot === 'top') topCues = cues; else bottomCues = cues;
+    if (cues.length === 0) {
+      alert('No subtitle lines found in "' + fileName + '" — is this the right file?');
+      return;
+    }
+    if (slot === 'top') { topCues = cues; topFileName = fileName; }
+    else { bottomCues = cues; bottomFileName = fileName; }
     save();
+    refreshStatus();
   }
 
   function handleZip(file) {
@@ -106,9 +121,14 @@
       row.onmouseenter = () => (row.style.background = 'rgba(255,255,255,0.15)');
       row.onmouseleave = () => (row.style.background = 'transparent');
       row.onclick = async () => {
-        const text = await entry.async('string');
-        applyCues(activeSlot, text);
-        document.body.removeChild(overlay);
+        try {
+          const text = await entry.async('text'); // JSZip has no 'string' type — this was the bug
+          applyCues(activeSlot, text, entry.name);
+          document.body.removeChild(overlay);
+        } catch (err) {
+          alert('Failed to read this file from the zip: ' + err.message);
+          console.error('DualSubs zip read error', err);
+        }
       };
       box.appendChild(row);
     });
@@ -128,19 +148,23 @@
     const btn = document.createElement('div');
     btn.textContent = 'CC';
     btn.title = 'Dual Subtitles (Alt+S to toggle)';
-    btn.style.cssText = `
+    const btnBaseStyle = `
       position: absolute; top: 55%; left: 8px; z-index: 2147483647;
-      background: rgba(0,0,0,0.6); color: #fff; font: bold 12px Arial, sans-serif;
-      padding: 4px 8px; border-radius: 4px; cursor: pointer; user-select: none;
-      pointer-events: auto;
+      font: bold 12px Arial, sans-serif; padding: 4px 8px; border-radius: 4px;
+      cursor: pointer; user-select: none; pointer-events: auto;
     `;
+    const paintBtn = () => {
+      btn.style.cssText = btnBaseStyle + (visible
+        ? 'background: rgba(0,150,80,0.85); color: #fff;'
+        : 'background: rgba(0,0,0,0.6); color: #aaa;');
+    };
 
     const panel = document.createElement('div');
     panel.style.cssText = `
       position: absolute; top: calc(55% + 26px); left: 8px; z-index: 2147483647;
       background: rgba(20,20,20,0.9); color: #fff; font: 13px Arial, sans-serif;
       padding: 8px; border-radius: 6px; display: none; flex-direction: column;
-      gap: 6px; min-width: 200px; pointer-events: auto;
+      gap: 6px; min-width: 220px; pointer-events: auto;
     `;
 
     const mkRow = (label, onClick) => {
@@ -153,8 +177,24 @@
       return row;
     };
 
+    const topStatus = document.createElement('div');
+    const bottomStatus = document.createElement('div');
+    for (const el of [topStatus, bottomStatus]) {
+      el.style.cssText = 'padding:2px 6px; font-size:11px; opacity:0.8; word-break:break-all;';
+    }
+
     panel.appendChild(mkRow('Load TOP subtitles (.srt/.zip)', () => pickFile('top')));
+    panel.appendChild(topStatus);
     panel.appendChild(mkRow('Load BOTTOM subtitles (.srt/.zip)', () => pickFile('bottom')));
+    panel.appendChild(bottomStatus);
+
+    refreshStatus = () => {
+      topStatus.textContent = topFileName ? ('✓ ' + topFileName) : '— not loaded';
+      bottomStatus.textContent = bottomFileName ? ('✓ ' + bottomFileName) : '— not loaded';
+      topStatus.style.color = topFileName ? '#7CFC7C' : '#999';
+      bottomStatus.style.color = bottomFileName ? '#7CFC7C' : '#999';
+    };
+    refreshStatus();
 
     // offset controls
     const offsetRow = (label, get, set) => {
@@ -178,23 +218,47 @@
     panel.appendChild(offsetRow('Top offset', () => topOffset, v => (topOffset = v)));
     panel.appendChild(offsetRow('Bottom offset', () => bottomOffset, v => (bottomOffset = v)));
 
+    // font size control (shared by both tracks)
+    const fontRow = document.createElement('div');
+    fontRow.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px;';
+    const fMinus = document.createElement('span');
+    fMinus.textContent = 'A−';
+    fMinus.style.cssText = 'cursor:pointer; padding:2px 6px; background:rgba(255,255,255,0.1); border-radius:3px;';
+    const fPlus = document.createElement('span');
+    fPlus.textContent = 'A+';
+    fPlus.style.cssText = fMinus.style.cssText;
+    const fVal = document.createElement('span');
+    const refreshFont = () => {
+      fVal.textContent = 'Size: ' + fontSize + 'px';
+      if (topBox) topBox.style.fontSize = fontSize + 'px';
+      if (bottomBox) bottomBox.style.fontSize = fontSize + 'px';
+    };
+    fMinus.onclick = () => { fontSize = Math.max(10, fontSize - 2); refreshFont(); save(); };
+    fPlus.onclick = () => { fontSize = Math.min(48, fontSize + 2); refreshFont(); save(); };
+    refreshFont();
+    fontRow.appendChild(fVal); fontRow.appendChild(fMinus); fontRow.appendChild(fPlus);
+    panel.appendChild(fontRow);
+
     const toggleRow = document.createElement('label');
     toggleRow.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px; cursor:pointer;';
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.checked = visible;
-    checkbox.onchange = () => setVisible(checkbox.checked);
+    checkbox.onchange = () => { setVisible(checkbox.checked); paintBtn(); };
     toggleRow.appendChild(checkbox);
     toggleRow.appendChild(document.createTextNode('Show subtitles'));
     panel.appendChild(toggleRow);
 
     panel.appendChild(mkRow('Clear subtitles', () => {
-      topCues = []; bottomCues = []; topOffset = 0; bottomOffset = 0; save();
+      topCues = []; bottomCues = []; topOffset = 0; bottomOffset = 0;
+      topFileName = null; bottomFileName = null;
+      save(); refreshStatus();
     }));
 
     btn.onclick = () => {
       panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
     };
+    paintBtn();
 
     container.appendChild(btn);
     container.appendChild(panel);
@@ -203,6 +267,7 @@
       if (e.altKey && e.key.toLowerCase() === 's') {
         checkbox.checked = !checkbox.checked;
         setVisible(checkbox.checked);
+        paintBtn();
       }
     });
   }
@@ -231,7 +296,7 @@
       box.style.cssText = `
         color: #fff; background: rgba(0,0,0,0.6);
         padding: 2px 10px; margin: 2px 0; border-radius: 4px;
-        font-size: 20px; text-align: center; max-width: 90%;
+        font-size: ${fontSize}px; text-align: center; max-width: 90%;
         text-shadow: 1px 1px 2px #000; white-space: pre-line;
       `;
     }
