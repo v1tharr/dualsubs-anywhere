@@ -1,28 +1,29 @@
 # Dual Subtitles Anywhere
 
-Наложение двух дорожек субтитров (например, английских + русских) поверх любого HTML5-видео на любом сайте — без необходимости скачивать видео или каждый раз заново загружать субтитры.
+Overlay two subtitle tracks (e.g. English + Russian) on top of any HTML5 video, on any site — no downloading the video, no re-uploading subtitles every time.
 
-**Статус:** ранняя разработка (v0.1, MVP).
+Status: early WIP (v0.1, MVP).
 
-Поставляется как единый юзерскрипт для Tampermonkey / Violentmonkey, собранный из исходных файлов (`src/`).
+Ships as a single Tampermonkey/Violentmonkey userscript, built from a small set of source files (`src/`) so the logic stays testable and organized rather than living in one giant file.
 
-## Установка
+## Install
 
-1. Установите [Tampermonkey](https://www.tampermonkey.net/) (или Violentmonkey / Greasemonkey — работает в любом браузере с поддержкой юзерскриптов: Chrome, Firefox, Edge).
-2. Откройте **[эту ссылку](https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js)** — Tampermonkey автоматически предложит установить скрипт.
-3. Обновите страницу с видео, запустите плеер и нажмите кнопку **CC** (слева на плеере, по центру высоты), чтобы загрузить субтитры.
+1. Install [Tampermonkey](https://www.tampermonkey.net/) (or Violentmonkey/Greasemonkey — works in any browser with a userscript manager: Chrome, Firefox, Edge)
+2. Open **[this link](https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js)** — Tampermonkey will offer to install it
+3. Reload the page you want to watch, open any `<video>`, click the **CC** button (left side of the player, mid-height) to load subtitles
 
-Обновления происходят автоматически: скрипт проверяет наличие новой версии `@version` по той же ссылке, и Tampermonkey предлагает обновиться.
+Updates are automatic — the script checks the same link for a newer `@version` and Tampermonkey prompts to update.
 
-## Использование субтитров из .zip-архивов
+## Using subtitles from a .zip
 
-Сайты с субтитрами часто упаковывают в один архив варианты под разные релизы (DVDRip, BluRay, HDTV и т.д.) с разной тайминговой разметкой. Нажмите **Load TOP/BOTTOM subtitles** и выберите `.zip`-файл напрямую — во всплывающем окне отобразится список всех `.srt` внутри архива, чтобы вы могли выбрать нужный без ручной распаковки.
+Subtitle sites often bundle many release variants (DVDRip/BluRay/HDTV/...) with different timing in one archive. Click **Load TOP/BOTTOM subtitles**, pick the `.zip` directly — a picker lists every `.srt` inside so you can choose without unzipping by hand.
 
-Если точное название релиза не очевидно, выберите любой подходящий вариант и используйте кнопки **смещения** (±0.5s) на панели, чтобы подогнать синхронизацию прямо во время просмотра.
+If the exact release isn't obvious (no labels visible in the player), pick any candidate and use the **offset** buttons (±0.5s) in the panel to nudge it into sync while watching.
 
-## Разработка (Dev)
+## Dev
 
-```bash
+```
 npm install
-npm test      # юнит-тесты для SRT-парсера
-npm run build # сборка итогового файла dist/dualsubs-anywhere.user.js
+npm test      # unit tests for the SRT parser
+npm run build # produces dist/dualsubs-anywhere.user.js
+```

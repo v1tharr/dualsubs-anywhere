@@ -5,7 +5,19 @@
 (function () {
   'use strict';
 
+  if (window.__dualSubsInitialized) {
+    console.log('[DualSubs] already initialized in this frame — skipping duplicate injection.');
+    return;
+  }
+  window.__dualSubsInitialized = true;
+
+  if (!window.DualSubs) {
+    console.error('[DualSubs] window.DualSubs is missing — srt-parser.js did not attach correctly. Aborting.');
+    return;
+  }
   const { parseSRT, findCue } = window.DualSubs;
+  console.log('[DualSubs] core.js starting, zip reader available:', typeof window.DualSubsZip !== 'undefined',
+    '| DecompressionStream supported:', typeof DecompressionStream !== 'undefined');
   const STORAGE_KEY = 'dualsubs:' + location.hostname + location.pathname + location.search;
 
   function withTimeout(promise, ms, label) {
@@ -22,7 +34,9 @@
   let topOffset = 0, bottomOffset = 0;
   let topFileName = null, bottomFileName = null;
   let fontSize = 20;
+  let subPosition = 75; // % from top of video where the subtitle block sits
   let topBox, bottomBox, wrap, currentVideo;
+  let btnEl, panelEl;
   let visible = true;
   let activeSlot = null; // 'top' | 'bottom' — which slot a zip-picker choice applies to
   let refreshStatus = () => {}; // wired up once the panel exists
@@ -37,6 +51,7 @@
         topFileName = data.topFileName || null;
         bottomFileName = data.bottomFileName || null;
         fontSize = data.fontSize || 20;
+        subPosition = data.subPosition || 75;
         visible = data.visible !== false;
       }
       callback();
@@ -48,7 +63,7 @@
       top: topCues, bottom: bottomCues,
       topOffset, bottomOffset,
       topFileName, bottomFileName,
-      fontSize, visible
+      fontSize, subPosition, visible
     });
   }
 
@@ -106,24 +121,28 @@
   }
 
   function handleZip(file) {
+    console.log('[DualSubs] zip selected:', file.name, file.size, 'bytes');
     const reader = new FileReader();
-    reader.onload = async () => {
+    reader.onload = () => {
       try {
-        const zip = await withTimeout(window.JSZip.loadAsync(reader.result), 8000, 'Opening zip');
-        const entries = Object.values(zip.files).filter(
-          f => !f.dir && f.name.toLowerCase().endsWith('.srt')
+        console.log('[DualSubs] file read into memory, parsing zip directory...');
+        const zipData = window.DualSubsZip.listEntries(reader.result);
+        console.log('[DualSubs] zip parsed, entry count:', zipData.entries.length);
+        const entries = zipData.entries.filter(
+          e => !e.isDir && e.name.toLowerCase().endsWith('.srt')
         );
-        showZipPicker(entries);
+        console.log('[DualSubs] .srt entries found:', entries.map(e => e.name));
+        showZipPicker(zipData, entries);
       } catch (err) {
-        console.error('DualSubs zip read error', err);
-        showZipPicker([], 'Failed to open zip: ' + err.message);
+        console.error('[DualSubs] zip parse error', err);
+        showZipPicker(null, [], 'Failed to open zip: ' + err.message);
       }
     };
-    reader.onerror = () => showZipPicker([], 'Failed to read the zip file from disk.');
+    reader.onerror = () => showZipPicker(null, [], 'Failed to read the zip file from disk.');
     reader.readAsArrayBuffer(file);
   }
 
-  function showZipPicker(entries, errorMsg) {
+  function showZipPicker(zipData, entries, errorMsg) {
     const overlay = document.createElement('div');
     overlay.style.cssText = `
       position: fixed; inset: 0; z-index: 2147483647;
@@ -161,18 +180,21 @@
       row.onclick = async () => {
         status.style.color = '#ccc';
         status.textContent = 'Loading...';
+        console.log('[DualSubs] reading entry:', entry.name, 'method:', entry.method, 'compressed size:', entry.compSize);
         try {
-          const text = await withTimeout(entry.async('text'), 8000, 'Reading file');
+          const text = await withTimeout(window.DualSubsZip.readEntry(zipData, entry), 15000, 'Reading file');
+          console.log('[DualSubs] entry read OK, text length:', text.length);
           const cues = parseSRT(text);
+          console.log('[DualSubs] parsed cues:', cues.length);
           if (cues.length === 0) {
             status.textContent = 'No subtitle lines found in this file — pick another one.';
             status.style.color = '#ff6b6b';
             return;
           }
           applyCues(activeSlot, text, entry.name);
-          document.body.removeChild(overlay);
+          overlay.remove();
         } catch (err) {
-          console.error('DualSubs entry read error', err);
+          console.error('[DualSubs] entry read error', err);
           status.textContent = 'Failed to read this file: ' + err.message;
           status.style.color = '#ff6b6b';
         }
@@ -183,20 +205,25 @@
     const cancel = document.createElement('div');
     cancel.textContent = 'Cancel';
     cancel.style.cssText = 'cursor:pointer; margin-top:10px; text-align:center; opacity:0.7;';
-    cancel.onclick = () => document.body.removeChild(overlay);
+    cancel.onclick = () => overlay.remove();
     box.appendChild(cancel);
 
     overlay.appendChild(box);
-    document.body.appendChild(overlay);
+    (getFullscreenElement() || document.body).appendChild(overlay);
+
+    overlay.addEventListener('click', e => e.stopPropagation());
+    overlay.addEventListener('dblclick', e => e.stopPropagation());
+    overlay.addEventListener('mousedown', e => e.stopPropagation());
   }
 
   // ---------- panel UI ----------
-  function buildPanel(container) {
+  function buildPanel() {
     const btn = document.createElement('div');
+    btnEl = btn;
     btn.textContent = 'CC';
     btn.title = 'Dual Subtitles (Alt+S to toggle)';
     const btnBaseStyle = `
-      position: absolute; top: 55%; left: 8px; z-index: 2147483647;
+      position: fixed; z-index: 2147483647;
       font: bold 12px Arial, sans-serif; padding: 4px 8px; border-radius: 4px;
       cursor: pointer; user-select: none; pointer-events: auto;
     `;
@@ -207,11 +234,12 @@
     };
 
     const panel = document.createElement('div');
+    panelEl = panel;
     panel.style.cssText = `
-      position: absolute; top: calc(55% + 26px); left: 8px; z-index: 2147483647;
-      background: rgba(20,20,20,0.9); color: #fff; font: 13px Arial, sans-serif;
+      position: fixed; z-index: 2147483647;
+      background: rgba(20,20,20,0.95); color: #fff; font: 13px Arial, sans-serif;
       padding: 8px; border-radius: 6px; display: none; flex-direction: column;
-      gap: 6px; min-width: 220px; max-height: 60vh; overflow-y: auto;
+      gap: 6px; min-width: 220px; overflow-y: auto;
       pointer-events: auto;
     `;
 
@@ -287,6 +315,23 @@
     fontRow.appendChild(fVal); fontRow.appendChild(fMinus); fontRow.appendChild(fPlus);
     panel.appendChild(fontRow);
 
+    // vertical position control
+    const posRow = document.createElement('div');
+    posRow.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px;';
+    const pUp = document.createElement('span');
+    pUp.textContent = '▲';
+    pUp.style.cssText = 'cursor:pointer; padding:2px 6px; background:rgba(255,255,255,0.1); border-radius:3px;';
+    const pDown = document.createElement('span');
+    pDown.textContent = '▼';
+    pDown.style.cssText = pUp.style.cssText;
+    const pVal = document.createElement('span');
+    const refreshPos = () => { pVal.textContent = 'Position: ' + subPosition + '%'; };
+    pUp.onclick = () => { subPosition = Math.max(5, subPosition - 5); refreshPos(); save(); positionElements(); };
+    pDown.onclick = () => { subPosition = Math.min(95, subPosition + 5); refreshPos(); save(); positionElements(); };
+    refreshPos();
+    posRow.appendChild(pVal); posRow.appendChild(pUp); posRow.appendChild(pDown);
+    panel.appendChild(posRow);
+
     const toggleRow = document.createElement('label');
     toggleRow.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px; cursor:pointer;';
     const checkbox = document.createElement('input');
@@ -305,11 +350,21 @@
 
     btn.onclick = () => {
       panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+      positionElements();
     };
     paintBtn();
 
-    container.appendChild(btn);
-    container.appendChild(panel);
+    document.body.appendChild(btn);
+    document.body.appendChild(panel);
+
+    // stop clicks on our UI from bubbling to the video player underneath —
+    // otherwise a fast double-click on a button (e.g. position ▲▼) reaches
+    // the player and triggers its native double-click-to-exit-fullscreen behavior
+    [btn, panel].forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('dblclick', e => e.stopPropagation());
+      el.addEventListener('mousedown', e => e.stopPropagation());
+    });
 
     document.addEventListener('keydown', e => {
       if (e.altKey && e.key.toLowerCase() === 's') {
@@ -320,20 +375,65 @@
     });
   }
 
+  // ---------- positioning (fixed, computed from the video's on-screen rect) ----------
+  function positionElements() {
+    if (!currentVideo || !wrap) return;
+    const r = currentVideo.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return; // video hidden/not laid out yet
+
+    wrap.style.left = r.left + 'px';
+    wrap.style.width = r.width + 'px';
+    wrap.style.top = (r.top + r.height * (subPosition / 100)) + 'px';
+
+    if (btnEl) {
+      btnEl.style.left = (r.left + 8) + 'px';
+      btnEl.style.top = (r.top + r.height * 0.55) + 'px';
+    }
+    if (panelEl) {
+      const panelTop = r.top + r.height * 0.55 + 26;
+      panelEl.style.left = (r.left + 8) + 'px';
+      panelEl.style.top = panelTop + 'px';
+      panelEl.style.maxHeight = Math.max(120, Math.min(window.innerHeight - panelTop - 10, window.innerHeight * 0.7)) + 'px';
+    }
+  }
+
+  // ---------- fullscreen handling ----------
+  // The Fullscreen API only renders the fullscreened element's subtree —
+  // anything appended elsewhere (like document.body) becomes invisible.
+  // Reparent our elements into whatever is currently fullscreened.
+  function getFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement ||
+      document.mozFullScreenElement || document.msFullscreenElement || null;
+  }
+
+  function reparentForFullscreen() {
+    const target = getFullscreenElement() || document.body;
+    [wrap, btnEl, panelEl].forEach(el => {
+      if (el && el.parentElement !== target) target.appendChild(el);
+    });
+    positionElements();
+  }
+
+  ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']
+    .forEach(evt => document.addEventListener(evt, reparentForFullscreen));
+
   // ---------- video overlay ----------
   function ensureOverlay(video) {
     if (currentVideo === video && wrap && document.body.contains(wrap)) return;
-    currentVideo = video;
 
-    const container = video.parentElement;
-    if (getComputedStyle(container).position === 'static') {
-      container.style.position = 'relative';
+    // the video element changed (source swap) — clean up the previous overlay first
+    if (currentVideo && currentVideo !== video) {
+      currentVideo.removeEventListener('timeupdate', updateSubs);
     }
+    if (wrap) wrap.remove();
+    if (btnEl) btnEl.remove();
+    if (panelEl) panelEl.remove();
+
+    currentVideo = video;
 
     wrap = document.createElement('div');
     wrap.style.cssText = `
-      position: absolute; left: 0; right: 0; bottom: 4%;
-      pointer-events: none; z-index: 2147483647;
+      position: fixed; pointer-events: none; z-index: 2147483647;
       display: ${visible ? 'flex' : 'none'}; flex-direction: column; align-items: center;
       font-family: Arial, sans-serif;
     `;
@@ -351,10 +451,19 @@
 
     wrap.appendChild(topBox);
     wrap.appendChild(bottomBox);
-    container.appendChild(wrap);
-    buildPanel(container);
+    document.body.appendChild(wrap);
+    buildPanel();
+    reparentForFullscreen(); // in case we attach while already in fullscreen
 
     video.addEventListener('timeupdate', updateSubs);
+    positionElements();
+
+    if (!window.__dualSubsGlobalListenersAttached) {
+      window.__dualSubsGlobalListenersAttached = true;
+      window.addEventListener('resize', positionElements);
+      window.addEventListener('scroll', positionElements, true); // capture: catches scroll on any ancestor container
+      setInterval(positionElements, 500); // fallback for layout changes that don't fire resize/scroll
+    }
   }
 
   function updateSubs() {

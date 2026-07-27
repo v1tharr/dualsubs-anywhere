@@ -39,3 +39,13 @@ test('findCue returns the matching line for a timestamp', () => {
   expect(findCue(cues, 5.0)).toBe('General Kenobi');
   expect(findCue(cues, 3.6)).toBe('');
 });
+
+test('strips basic formatting tags like <i></i>', () => {
+  const withTags = `1
+00:00:01,000 --> 00:00:03,000
+<i>That's why I think it's best</i>
+to take it one step at a time.
+`;
+  const cues = parseSRT(withTags);
+  expect(cues[0].text).toBe("That's why I think it's best\nto take it one step at a time.");
+});
