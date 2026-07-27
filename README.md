@@ -2,6 +2,8 @@
 
 **RUS** | [ENG](README.eng.md)
 
+[![CI](https://github.com/v1tharr/dualsubs-anywhere/actions/workflows/ci.yml/badge.svg)](https://github.com/v1tharr/dualsubs-anywhere/actions/workflows/ci.yml)
+
 Накладывает две дорожки субтитров (например, английские + русские) поверх любого HTML5-видео на любом сайте — без скачивания видео и без повторной загрузки сабов каждый раз заново.
 
 Статус: v0.2, активно используется и дорабатывается.
