@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Dual Subs Anywhere
 // @namespace    https://github.com/v1tharr/dualsubs-anywhere
-// @version      0.1.0
+// @version      0.1.2
 // @description  Overlay two subtitle tracks (e.g. English + Russian) on top of any HTML5 video, on any site
 // @author       v1tharr
 // @match        *://*/*
@@ -133,6 +133,19 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 
   // ---------- file loading (.srt or .zip) ----------
+  function showToast(message, isError) {
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 2147483647; background: ${isError ? '#8b1e1e' : '#1e6b3a'};
+      color: #fff; padding: 8px 16px; border-radius: 6px;
+      font: 13px Arial, sans-serif; max-width: 80vw; text-align: center;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+  }
+
   function pickFile(slot) {
     activeSlot = slot;
     const input = document.createElement('input');
@@ -146,7 +159,7 @@ if (typeof module !== 'undefined' && module.exports) {
       } else {
         const reader = new FileReader();
         reader.onload = () => applyCues(activeSlot, reader.result, file.name);
-        reader.onerror = () => alert('Failed to read file: ' + file.name);
+        reader.onerror = () => showToast('Failed to read file: ' + file.name, true);
         reader.readAsText(file, 'utf-8');
       }
     };
@@ -156,32 +169,35 @@ if (typeof module !== 'undefined' && module.exports) {
   function applyCues(slot, text, fileName) {
     const cues = parseSRT(text);
     if (cues.length === 0) {
-      alert('No subtitle lines found in "' + fileName + '" — is this the right file?');
+      showToast('No subtitle lines found in "' + fileName + '" — is this the right file?', true);
       return;
     }
     if (slot === 'top') { topCues = cues; topFileName = fileName; }
     else { bottomCues = cues; bottomFileName = fileName; }
     save();
     refreshStatus();
+    showToast((slot === 'top' ? 'Top' : 'Bottom') + ' subtitles loaded: ' + fileName, false);
   }
 
   function handleZip(file) {
     const reader = new FileReader();
     reader.onload = async () => {
-      const zip = await window.JSZip.loadAsync(reader.result);
-      const entries = Object.values(zip.files).filter(
-        f => !f.dir && f.name.toLowerCase().endsWith('.srt')
-      );
-      if (entries.length === 0) {
-        alert('No .srt files found inside this zip.');
-        return;
+      try {
+        const zip = await window.JSZip.loadAsync(reader.result);
+        const entries = Object.values(zip.files).filter(
+          f => !f.dir && f.name.toLowerCase().endsWith('.srt')
+        );
+        showZipPicker(entries);
+      } catch (err) {
+        console.error('DualSubs zip read error', err);
+        showZipPicker([], 'Failed to open zip: ' + err.message);
       }
-      showZipPicker(entries);
     };
+    reader.onerror = () => showZipPicker([], 'Failed to read the zip file from disk.');
     reader.readAsArrayBuffer(file);
   }
 
-  function showZipPicker(entries) {
+  function showZipPicker(entries, errorMsg) {
     const overlay = document.createElement('div');
     overlay.style.cssText = `
       position: fixed; inset: 0; z-index: 2147483647;
@@ -198,6 +214,18 @@ if (typeof module !== 'undefined' && module.exports) {
     title.style.cssText = 'margin-bottom: 10px; font-weight: bold;';
     box.appendChild(title);
 
+    const status = document.createElement('div');
+    status.style.cssText = 'margin-bottom: 10px; font-size: 12px; min-height: 16px;';
+    box.appendChild(status);
+
+    if (errorMsg) {
+      status.textContent = errorMsg;
+      status.style.color = '#ff6b6b';
+    } else if (entries.length === 0) {
+      status.textContent = 'No .srt files found inside this zip.';
+      status.style.color = '#ff6b6b';
+    }
+
     entries.forEach(entry => {
       const row = document.createElement('div');
       row.textContent = entry.name;
@@ -205,13 +233,22 @@ if (typeof module !== 'undefined' && module.exports) {
       row.onmouseenter = () => (row.style.background = 'rgba(255,255,255,0.15)');
       row.onmouseleave = () => (row.style.background = 'transparent');
       row.onclick = async () => {
+        status.style.color = '#ccc';
+        status.textContent = 'Loading...';
         try {
-          const text = await entry.async('text'); // JSZip has no 'string' type — this was the bug
+          const text = await entry.async('text');
+          const cues = parseSRT(text);
+          if (cues.length === 0) {
+            status.textContent = 'No subtitle lines found in this file — pick another one.';
+            status.style.color = '#ff6b6b';
+            return;
+          }
           applyCues(activeSlot, text, entry.name);
           document.body.removeChild(overlay);
         } catch (err) {
-          alert('Failed to read this file from the zip: ' + err.message);
-          console.error('DualSubs zip read error', err);
+          console.error('DualSubs entry read error', err);
+          status.textContent = 'Failed to read this file: ' + err.message;
+          status.style.color = '#ff6b6b';
         }
       };
       box.appendChild(row);
