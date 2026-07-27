@@ -18,7 +18,7 @@ function parseSRT(text) {
     const start = toSeconds(startStr);
     const end = toSeconds(endStr);
     const textLines = lines.slice(lines.indexOf(timeLine) + 1);
-    const cueText = textLines.join('\n').trim();
+    const cueText = textLines.join('\n').replace(/<\/?[a-zA-Z][^>]*>/g, '').trim();
     if (!cueText) continue;
 
     cues.push({ start, end, text: cueText });
@@ -40,11 +40,12 @@ function findCue(cues, time) {
   return '';
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseSRT, toSeconds, findCue };
-} else {
+if (typeof window !== 'undefined') {
   window.DualSubs = window.DualSubs || {};
   window.DualSubs.parseSRT = parseSRT;
   window.DualSubs.toSeconds = toSeconds;
   window.DualSubs.findCue = findCue;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { parseSRT, toSeconds, findCue };
 }
