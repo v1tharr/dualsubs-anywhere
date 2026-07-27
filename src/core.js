@@ -6,7 +6,17 @@
   'use strict';
 
   const { parseSRT, findCue } = window.DualSubs;
-  const STORAGE_KEY = 'dualsubs:' + location.hostname;
+  const STORAGE_KEY = 'dualsubs:' + location.hostname + location.pathname + location.search;
+
+  function withTimeout(promise, ms, label) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(label + ' timed out after ' + (ms / 1000) + 's')), ms);
+      promise.then(
+        v => { clearTimeout(timer); resolve(v); },
+        e => { clearTimeout(timer); reject(e); }
+      );
+    });
+  }
 
   let topCues = [], bottomCues = [];
   let topOffset = 0, bottomOffset = 0;
@@ -99,7 +109,7 @@
     const reader = new FileReader();
     reader.onload = async () => {
       try {
-        const zip = await window.JSZip.loadAsync(reader.result);
+        const zip = await withTimeout(window.JSZip.loadAsync(reader.result), 8000, 'Opening zip');
         const entries = Object.values(zip.files).filter(
           f => !f.dir && f.name.toLowerCase().endsWith('.srt')
         );
@@ -152,7 +162,7 @@
         status.style.color = '#ccc';
         status.textContent = 'Loading...';
         try {
-          const text = await entry.async('text');
+          const text = await withTimeout(entry.async('text'), 8000, 'Reading file');
           const cues = parseSRT(text);
           if (cues.length === 0) {
             status.textContent = 'No subtitle lines found in this file — pick another one.';
@@ -201,7 +211,8 @@
       position: absolute; top: calc(55% + 26px); left: 8px; z-index: 2147483647;
       background: rgba(20,20,20,0.9); color: #fff; font: 13px Arial, sans-serif;
       padding: 8px; border-radius: 6px; display: none; flex-direction: column;
-      gap: 6px; min-width: 220px; pointer-events: auto;
+      gap: 6px; min-width: 220px; max-height: 60vh; overflow-y: auto;
+      pointer-events: auto;
     `;
 
     const mkRow = (label, onClick) => {
