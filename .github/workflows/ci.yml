@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-and-verify-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+
+      - name: Rebuild dist and diff against committed version
+        run: |
+          npm run build
+          if ! git diff --exit-code dist/dualsubs-anywhere.user.js; then
+            echo ""
+            echo "::error::dist/dualsubs-anywhere.user.js is out of date."
+            echo "::error::You edited src/ (or build.js) but forgot to run 'npm run build' and commit the result."
+            echo "::error::Run 'npm run build' locally, then commit the updated dist/dualsubs-anywhere.user.js."
+            exit 1
+          fi
