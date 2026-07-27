@@ -2,6 +2,8 @@
 
 [RUS](README.md) | **ENG**
 
+[![CI](https://github.com/v1tharr/dualsubs-anywhere/actions/workflows/ci.yml/badge.svg)](https://github.com/v1tharr/dualsubs-anywhere/actions/workflows/ci.yml)
+
 Overlay two subtitle tracks (e.g. English + Russian) on top of any HTML5 video, on any site — no downloading the video, no re-uploading subtitles every time.
 
 Status: v0.2, actively used and iterated on.
