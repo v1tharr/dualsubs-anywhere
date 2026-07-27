@@ -1,29 +1,40 @@
-# Dual Subtitles Anywhere
+# Dual Subs Anywhere
 
-Overlay two subtitle tracks (e.g. English + Russian) on top of any HTML5 video, on any site — no downloading the video, no re-uploading subtitles every time.
+**RUS** | [ENG](README.eng.md)
 
-Status: early WIP (v0.1, MVP).
+Накладывает две дорожки субтитров (например, английские + русские) поверх любого HTML5-видео на любом сайте — без скачивания видео и без повторной загрузки сабов каждый раз заново.
 
-Ships as a single Tampermonkey/Violentmonkey userscript, built from a small set of source files (`src/`) so the logic stays testable and organized rather than living in one giant file.
+Статус: v0.2, активно используется и дорабатывается.
 
-## Install
+Раздаётся как один Tampermonkey/Violentmonkey userscript, собранный из нескольких исходных файлов (`src/`), чтобы логика оставалась тестируемой и организованной, а не жила в одном гигантском файле. Никаких сторонних зависимостей в рантайме — zip-архивы парсятся и распаковываются собственным небольшим ридером поверх нативного браузерного `DecompressionStream`.
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/) (or Violentmonkey/Greasemonkey — works in any browser with a userscript manager: Chrome, Firefox, Edge)
-2. Open **[this link](https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js)** — Tampermonkey will offer to install it
-3. Reload the page you want to watch, open any `<video>`, click the **CC** button (left side of the player, mid-height) to load subtitles
+## Установка
 
-Updates are automatic — the script checks the same link for a newer `@version` and Tampermonkey prompts to update.
+1. Поставь [Tampermonkey](https://www.tampermonkey.net/) (или Violentmonkey/Greasemonkey — работает в любом браузере с менеджером юзерскриптов: Chrome, Firefox, Edge)
+2. Открой **[эту ссылку](https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js)** — Tampermonkey предложит установку
+3. Обнови страницу с видео, открой любой `<video>`, нажми кнопку **CC** (слева от плеера, посередине по высоте), чтобы загрузить субтитры
 
-## Using subtitles from a .zip
+Обновления автоматические — скрипт проверяет ту же ссылку на новую `@version`, и Tampermonkey сам предложит обновиться.
 
-Subtitle sites often bundle many release variants (DVDRip/BluRay/HDTV/...) with different timing in one archive. Click **Load TOP/BOTTOM subtitles**, pick the `.zip` directly — a picker lists every `.srt` inside so you can choose without unzipping by hand.
+## Возможности
 
-If the exact release isn't obvious (no labels visible in the player), pick any candidate and use the **offset** buttons (±0.5s) in the panel to nudge it into sync while watching.
+- Две независимые дорожки субтитров (верх/низ), у каждой свой загрузчик `.srt`/`.zip` и индикатор статуса
+- Сдвиг тайминга по отдельности для каждой дорожки (кнопки ±0.5с) — можно подогнать под нужный рип, даже не зная точно какой это релиз
+- Настраиваемый размер шрифта и положение по вертикали, сохраняются для каждой страницы
+- Включение/выключение (`Alt+S` или сама кнопка CC)
+- Работает в полноэкранном режиме — панель следует за видео при входе/выходе из fullscreen
+- Настройки сохраняются по странице (URL + query), так что переключение серии не тащит за собой чужие субтитры
 
-## Dev
+## Загрузка субтитров из .zip
+
+Сайты с субтитрами часто кладут в один архив кучу вариантов под разные релизы (DVDRip/BluRay/HDTV/...) с разным таймингом. Жми **Load TOP/BOTTOM subtitles**, выбирай `.zip` напрямую — появится список всех `.srt` внутри, можно выбрать нужный без ручной распаковки.
+
+Если точный релиз не очевиден (в плеере нет никаких меток) — бери любой подходящий файл и подгоняй кнопками **offset** в панели, глядя на видео.
+
+## Разработка
 
 ```
 npm install
-npm test      # unit tests for the SRT parser
-npm run build # produces dist/dualsubs-anywhere.user.js
+npm test      # юнит-тесты парсера SRT
+npm run build # собирает dist/dualsubs-anywhere.user.js
 ```
