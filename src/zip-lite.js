@@ -72,7 +72,7 @@
     } else {
       throw new Error('Unsupported compression method (' + entry.method + ') for "' + entry.name + '"');
     }
-    return new TextDecoder('utf-8').decode(outBytes);
+    return window.DualSubs.decodeSubtitleBytes(outBytes);
   }
 
   window.DualSubsZip = { listEntries, readEntry };

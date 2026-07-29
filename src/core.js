@@ -15,7 +15,7 @@
     console.error('[DualSubs] window.DualSubs is missing — srt-parser.js did not attach correctly. Aborting.');
     return;
   }
-  const { parseSRT, findCue } = window.DualSubs;
+  const { parseSRT, findCue, decodeSubtitleBytes } = window.DualSubs;
   console.log('[DualSubs] core.js starting, zip reader available:', typeof window.DualSubsZip !== 'undefined',
     '| DecompressionStream supported:', typeof DecompressionStream !== 'undefined');
   const STORAGE_KEY = 'dualsubs:' + location.hostname + location.pathname + location.search;
@@ -99,9 +99,12 @@
         handleZip(file);
       } else {
         const reader = new FileReader();
-        reader.onload = () => applyCues(activeSlot, reader.result, file.name);
+        reader.onload = () => {
+          const text = decodeSubtitleBytes(new Uint8Array(reader.result));
+          applyCues(activeSlot, text, file.name);
+        };
         reader.onerror = () => showToast('Failed to read file: ' + file.name, true);
-        reader.readAsText(file, 'utf-8');
+        reader.readAsArrayBuffer(file);
       }
     };
     input.click();

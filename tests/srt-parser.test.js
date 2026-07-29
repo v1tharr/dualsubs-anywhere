@@ -1,4 +1,4 @@
-const { parseSRT, toSeconds, findCue } = require('../src/srt-parser.js');
+const { parseSRT, toSeconds, findCue, decodeSubtitleBytes } = require('../src/srt-parser.js');
 
 const SAMPLE = `1
 00:00:01,000 --> 00:00:03,500
@@ -48,4 +48,15 @@ to take it one step at a time.
 `;
   const cues = parseSRT(withTags);
   expect(cues[0].text).toBe("That's why I think it's best\nto take it one step at a time.");
+});
+
+test('decodeSubtitleBytes falls back to windows-1251 for non-UTF-8 Russian subtitle bytes', () => {
+  // "Послушай!" encoded as Windows-1251 (typical of old .srt files from RU trackers)
+  const cp1251Bytes = new Uint8Array([0xCF, 0xEE, 0xF1, 0xEB, 0xF3, 0xF8, 0xE0, 0xE9, 0x21]);
+  expect(decodeSubtitleBytes(cp1251Bytes)).toBe('Послушай!');
+});
+
+test('decodeSubtitleBytes keeps valid UTF-8 as UTF-8', () => {
+  const utf8Bytes = new TextEncoder().encode('Привет, мир!');
+  expect(decodeSubtitleBytes(utf8Bytes)).toBe('Привет, мир!');
 });

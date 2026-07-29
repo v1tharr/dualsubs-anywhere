@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Dual Subs Anywhere
 // @namespace    https://github.com/v1tharr/dualsubs-anywhere
-// @version      0.2.4
+// @version      0.2.5
 // @description  Overlay two subtitle tracks (e.g. English + Russian) on top of any HTML5 video, on any site
 // @author       v1tharr
 // @match        *://*/*
@@ -71,14 +71,30 @@ function findCue(cues, time) {
   return '';
 }
 
+// Old Russian/CIS subtitle files are very often Windows-1251, not UTF-8.
+// Try strict UTF-8 first (throws on invalid byte sequences); if that fails,
+// fall back to windows-1251, which the browser's TextDecoder supports natively.
+function decodeSubtitleBytes(bytes) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (e) {
+    try {
+      return new TextDecoder('windows-1251').decode(bytes);
+    } catch (e2) {
+      return new TextDecoder('utf-8').decode(bytes); // last resort, lossy
+    }
+  }
+}
+
 if (typeof window !== 'undefined') {
   window.DualSubs = window.DualSubs || {};
   window.DualSubs.parseSRT = parseSRT;
   window.DualSubs.toSeconds = toSeconds;
   window.DualSubs.findCue = findCue;
+  window.DualSubs.decodeSubtitleBytes = decodeSubtitleBytes;
 }
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseSRT, toSeconds, findCue };
+  module.exports = { parseSRT, toSeconds, findCue, decodeSubtitleBytes };
 }
 
 
@@ -156,7 +172,7 @@ if (typeof module !== 'undefined' && module.exports) {
     } else {
       throw new Error('Unsupported compression method (' + entry.method + ') for "' + entry.name + '"');
     }
-    return new TextDecoder('utf-8').decode(outBytes);
+    return window.DualSubs.decodeSubtitleBytes(outBytes);
   }
 
   window.DualSubsZip = { listEntries, readEntry };
@@ -180,7 +196,7 @@ if (typeof module !== 'undefined' && module.exports) {
     console.error('[DualSubs] window.DualSubs is missing — srt-parser.js did not attach correctly. Aborting.');
     return;
   }
-  const { parseSRT, findCue } = window.DualSubs;
+  const { parseSRT, findCue, decodeSubtitleBytes } = window.DualSubs;
   console.log('[DualSubs] core.js starting, zip reader available:', typeof window.DualSubsZip !== 'undefined',
     '| DecompressionStream supported:', typeof DecompressionStream !== 'undefined');
   const STORAGE_KEY = 'dualsubs:' + location.hostname + location.pathname + location.search;
@@ -264,9 +280,12 @@ if (typeof module !== 'undefined' && module.exports) {
         handleZip(file);
       } else {
         const reader = new FileReader();
-        reader.onload = () => applyCues(activeSlot, reader.result, file.name);
+        reader.onload = () => {
+          const text = decodeSubtitleBytes(new Uint8Array(reader.result));
+          applyCues(activeSlot, text, file.name);
+        };
         reader.onerror = () => showToast('Failed to read file: ' + file.name, true);
-        reader.readAsText(file, 'utf-8');
+        reader.readAsArrayBuffer(file);
       }
     };
     input.click();
