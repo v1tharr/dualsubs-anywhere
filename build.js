@@ -20,8 +20,8 @@ const HEADER = `// ==UserScript==
 // @connect      api.opensubtitles.com
 // @connect      www.opensubtitles.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/feat/opensubtitles-api/dist/dualsubs-anywhere.user.js
-// @downloadURL  https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/feat/opensubtitles-api/dist/dualsubs-anywhere.user.js
+// @updateURL    https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js
+// @downloadURL  https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js
 // ==/UserScript==
 
 `;
