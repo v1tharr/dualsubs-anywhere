@@ -535,6 +535,13 @@ if (typeof module !== 'undefined' && module.exports) {
     });
   }
 
+  const COMMON_LANGUAGES = [
+    ['en', 'English'], ['ru', 'Russian'], ['es', 'Spanish'], ['pt-br', 'Portuguese (BR)'],
+    ['pt', 'Portuguese'], ['fr', 'French'], ['de', 'German'], ['it', 'Italian'],
+    ['pl', 'Polish'], ['uk', 'Ukrainian'], ['tr', 'Turkish'], ['ar', 'Arabic'],
+    ['zh-cn', 'Chinese (Simplified)'], ['ja', 'Japanese'], ['ko', 'Korean']
+  ];
+
   async function autoFindSubtitles(slot) {
     if (!window.DualSubsAPI) {
       showToast('Auto-find is not available in this build.', true);
@@ -542,25 +549,110 @@ if (typeof module !== 'undefined' && module.exports) {
     }
     getApiKey(async (apiKey) => {
       if (!apiKey) return;
-      const guessed = await getBestTitle(); // just a starting point, always editable below
-      const query = window.prompt('Search OpenSubtitles for the ' + slot.toUpperCase() + ' track:', guessed);
-      if (!query || !query.trim()) return;
-      const defaultLang = slot === 'top' ? 'en' : 'ru';
-      const lang = (window.prompt('Language code (ISO 639-1, e.g. en, ru, es):', defaultLang) || defaultLang).trim().toLowerCase();
-      showToast('Searching OpenSubtitles for "' + query + '" (' + lang + ')...', false);
-      window.DualSubsAPI.search(apiKey, query, lang)
-        .then(results => {
-          if (results.length === 0) {
-            showToast('No results found for "' + query + '". Try loading a file manually.', true);
-            return;
-          }
-          showSearchResultsPicker(slot, apiKey, results);
-        })
-        .catch(err => {
-          console.error('[DualSubs] OpenSubtitles search failed', err);
-          showToast('Search failed: ' + err.message, true);
-        });
+      const guessed = await getBestTitle(); // just a starting point, user can edit it in the modal
+      showSearchSetupModal(slot, guessed, (query, lang) => {
+        showToast('Searching OpenSubtitles for "' + query + '" (' + lang + ')...', false);
+        window.DualSubsAPI.search(apiKey, query, lang)
+          .then(results => {
+            if (results.length === 0) {
+              showToast('No results found for "' + query + '". Try loading a file manually.', true);
+              return;
+            }
+            showSearchResultsPicker(slot, apiKey, results);
+          })
+          .catch(err => {
+            console.error('[DualSubs] OpenSubtitles search failed', err);
+            showToast('Search failed: ' + err.message, true);
+          });
+      });
     });
+  }
+
+  function showSearchSetupModal(slot, guessedTitle, onSearch) {
+    const defaultLang = slot === 'top' ? 'en' : 'ru';
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed; inset: 0; z-index: 2147483647;
+      background: rgba(0,0,0,0.7); display: flex;
+      align-items: center; justify-content: center;
+    `;
+    const box = document.createElement('div');
+    box.style.cssText = `
+      background: #1a1a1a; color: #fff; padding: 16px; border-radius: 8px;
+      width: 320px; font: 13px Arial, sans-serif; display: flex; flex-direction: column; gap: 10px;
+    `;
+
+    const title = document.createElement('div');
+    title.textContent = 'Auto-find ' + slot.toUpperCase() + ' track';
+    title.style.fontWeight = 'bold';
+    box.appendChild(title);
+
+    const queryInput = document.createElement('input');
+    queryInput.type = 'text';
+    queryInput.value = guessedTitle;
+    queryInput.placeholder = 'Movie / episode title';
+    queryInput.style.cssText = 'padding:6px; border-radius:4px; border:1px solid #444; background:#111; color:#fff;';
+    box.appendChild(queryInput);
+
+    const langSelect = document.createElement('select');
+    langSelect.style.cssText = 'padding:6px; border-radius:4px; border:1px solid #444; background:#111; color:#fff;';
+    COMMON_LANGUAGES.forEach(([code, name]) => {
+      const opt = document.createElement('option');
+      opt.value = code;
+      opt.textContent = name + ' (' + code + ')';
+      if (code === defaultLang) opt.selected = true;
+      langSelect.appendChild(opt);
+    });
+    const otherOpt = document.createElement('option');
+    otherOpt.value = '__other__';
+    otherOpt.textContent = 'Other...';
+    langSelect.appendChild(otherOpt);
+    box.appendChild(langSelect);
+
+    const otherInput = document.createElement('input');
+    otherInput.type = 'text';
+    otherInput.placeholder = 'ISO 639-1 code, e.g. sv';
+    otherInput.style.cssText = 'padding:6px; border-radius:4px; border:1px solid #444; background:#111; color:#fff; display:none;';
+    box.appendChild(otherInput);
+    langSelect.onchange = () => {
+      otherInput.style.display = langSelect.value === '__other__' ? 'block' : 'none';
+    };
+
+    const helpLink = document.createElement('a');
+    helpLink.href = 'https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes';
+    helpLink.target = '_blank';
+    helpLink.rel = 'noopener noreferrer';
+    helpLink.textContent = 'Full language code list';
+    helpLink.style.cssText = 'color:#7CFC7C; font-size:11px;';
+    box.appendChild(helpLink);
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex; gap:8px; justify-content:flex-end;';
+    const cancelBtn = document.createElement('span');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.cssText = 'cursor:pointer; padding:6px 10px; opacity:0.7;';
+    cancelBtn.onclick = () => overlay.remove();
+    const searchBtn = document.createElement('span');
+    searchBtn.textContent = 'Search';
+    searchBtn.style.cssText = 'cursor:pointer; padding:6px 10px; background:rgba(0,150,80,0.85); border-radius:4px;';
+    searchBtn.onclick = () => {
+      const query = queryInput.value.trim();
+      if (!query) return;
+      const lang = (langSelect.value === '__other__' ? otherInput.value : langSelect.value).trim().toLowerCase();
+      if (!lang) return;
+      overlay.remove();
+      onSearch(query, lang);
+    };
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(searchBtn);
+    box.appendChild(btnRow);
+
+    overlay.appendChild(box);
+    (getFullscreenElement() || document.body).appendChild(overlay);
+    overlay.addEventListener('click', e => e.stopPropagation());
+    overlay.addEventListener('dblclick', e => e.stopPropagation());
+    overlay.addEventListener('mousedown', e => e.stopPropagation());
+    queryInput.focus();
   }
 
   function showSearchResultsPicker(slot, apiKey, results) {
