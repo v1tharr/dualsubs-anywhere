@@ -71,14 +71,30 @@ function findCue(cues, time) {
   return '';
 }
 
+// Old Russian/CIS subtitle files are very often Windows-1251, not UTF-8.
+// Try strict UTF-8 first (throws on invalid byte sequences); if that fails,
+// fall back to windows-1251, which the browser's TextDecoder supports natively.
+function decodeSubtitleBytes(bytes) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (e) {
+    try {
+      return new TextDecoder('windows-1251').decode(bytes);
+    } catch (e2) {
+      return new TextDecoder('utf-8').decode(bytes); // last resort, lossy
+    }
+  }
+}
+
 if (typeof window !== 'undefined') {
   window.DualSubs = window.DualSubs || {};
   window.DualSubs.parseSRT = parseSRT;
   window.DualSubs.toSeconds = toSeconds;
   window.DualSubs.findCue = findCue;
+  window.DualSubs.decodeSubtitleBytes = decodeSubtitleBytes;
 }
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseSRT, toSeconds, findCue };
+  module.exports = { parseSRT, toSeconds, findCue, decodeSubtitleBytes };
 }
 
 
@@ -156,7 +172,7 @@ if (typeof module !== 'undefined' && module.exports) {
     } else {
       throw new Error('Unsupported compression method (' + entry.method + ') for "' + entry.name + '"');
     }
-    return new TextDecoder('utf-8').decode(outBytes);
+    return window.DualSubs.decodeSubtitleBytes(outBytes);
   }
 
   window.DualSubsZip = { listEntries, readEntry };
