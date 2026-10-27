@@ -15,7 +15,7 @@
     console.error('[DualSubs] window.DualSubs is missing — srt-parser.js did not attach correctly. Aborting.');
     return;
   }
-  const { parseSRT, findCue, decodeSubtitleBytes } = window.DualSubs;
+  const { parseSRT, findCue } = window.DualSubs;
   console.log('[DualSubs] core.js starting, zip reader available:', typeof window.DualSubsZip !== 'undefined',
     '| DecompressionStream supported:', typeof DecompressionStream !== 'undefined');
   const STORAGE_KEY = 'dualsubs:' + location.hostname + location.pathname + location.search;
@@ -99,12 +99,9 @@
         handleZip(file);
       } else {
         const reader = new FileReader();
-        reader.onload = () => {
-          const text = decodeSubtitleBytes(new Uint8Array(reader.result));
-          applyCues(activeSlot, text, file.name);
-        };
+        reader.onload = () => applyCues(activeSlot, reader.result, file.name);
         reader.onerror = () => showToast('Failed to read file: ' + file.name, true);
-        reader.readAsArrayBuffer(file);
+        reader.readAsText(file, 'utf-8');
       }
     };
     input.click();
@@ -476,12 +473,29 @@
     bottomBox.textContent = findCue(bottomCues, t + bottomOffset);
   }
 
-  function scan() {
+  // Ignore tiny/offscreen <video> elements — hover-preview thumbnails on
+  // content grids, autoplay teasers, etc. Only the single
+  // largest on-screen video on the page is treated as "the player".
+  const MIN_VIDEO_AREA = 200 * 150; // px^2 — comfortably above any thumbnail size
+
+  function pickMainVideo() {
+    let best = null, bestArea = 0;
     document.querySelectorAll('video').forEach(v => {
-      if (v.readyState >= 1 || v.src || v.currentSrc) {
-        ensureOverlay(v);
-      }
+      const r = v.getBoundingClientRect();
+      const area = r.width * r.height;
+      if (area < MIN_VIDEO_AREA) return; // too small to be the real player
+      if (r.bottom < 0 || r.right < 0 || r.top > window.innerHeight || r.left > window.innerWidth) return; // offscreen
+      if (area > bestArea) { bestArea = area; best = v; }
     });
+    return best;
+  }
+
+  function scan() {
+    const video = pickMainVideo();
+    if (!video) return; // nothing qualifies yet (page still loading, or only thumbnails present)
+    if (video.readyState >= 1 || video.src || video.currentSrc) {
+      ensureOverlay(video);
+    }
   }
 
   loadSaved(() => {
