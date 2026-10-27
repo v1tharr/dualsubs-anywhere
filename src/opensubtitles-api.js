@@ -1,12 +1,5 @@
-// OpenSubtitles REST API v1 client, built on GM_xmlhttpRequest (needed for
-// cross-origin requests from a userscript — a plain fetch() in the page's
-// own context can't reach api.opensubtitles.com due to CORS/CSP on most sites).
-// Search + download both work with just an API key on the shared free quota —
-// no login/JWT flow required for this.
-//
-// This file is concatenated into dist/dualsubs-anywhere.user.js by build.js.
-// Only included on the feat/opensubtitles-api build (needs @grant GM_xmlhttpRequest
-// and @connect api.opensubtitles.com / www.opensubtitles.com — see build.js).
+// OpenSubtitles REST API v1 client. Uses GM_xmlhttpRequest, not fetch() —
+// a page-context fetch gets blocked by CORS on most sites.
 (function () {
   'use strict';
 
@@ -61,17 +54,12 @@
     });
     const data = JSON.parse(res.responseText);
     if (!data.link) throw new Error('No download link in response');
-    // OpenSubtitles' own docs are inconsistent about the exact field names for
-    // remaining daily quota, so log the raw response once here — check devtools
-    // console after a download to see what this account's response actually
-    // contains (commonly "remaining" / "requests" / "reset_time").
-    console.log('[DualSubs] OpenSubtitles /download response:', data);
+    console.log('[DualSubs] /download response:', data); // check real field names for quota here
     return { link: data.link, remaining: data.remaining, requests: data.requests, resetTime: data.reset_time };
   }
 
   async function fetchText(url) {
-    // responseType 'arraybuffer' so we control decoding ourselves — the
-    // subtitle file isn't always UTF-8 (see decodeSubtitleBytes).
+    // arraybuffer, not text — decodeSubtitleBytes handles non-UTF-8 files
     const res = await gmRequest({ method: 'GET', url, responseType: 'arraybuffer', timeout: 20000 });
     if (res.response instanceof ArrayBuffer && window.DualSubs && window.DualSubs.decodeSubtitleBytes) {
       return window.DualSubs.decodeSubtitleBytes(new Uint8Array(res.response));

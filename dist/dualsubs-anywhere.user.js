@@ -182,15 +182,8 @@ if (typeof module !== 'undefined' && module.exports) {
 })();
 
 
-// OpenSubtitles REST API v1 client, built on GM_xmlhttpRequest (needed for
-// cross-origin requests from a userscript — a plain fetch() in the page's
-// own context can't reach api.opensubtitles.com due to CORS/CSP on most sites).
-// Search + download both work with just an API key on the shared free quota —
-// no login/JWT flow required for this.
-//
-// This file is concatenated into dist/dualsubs-anywhere.user.js by build.js.
-// Only included on the feat/opensubtitles-api build (needs @grant GM_xmlhttpRequest
-// and @connect api.opensubtitles.com / www.opensubtitles.com — see build.js).
+// OpenSubtitles REST API v1 client. Uses GM_xmlhttpRequest, not fetch() —
+// a page-context fetch gets blocked by CORS on most sites.
 (function () {
   'use strict';
 
@@ -245,17 +238,12 @@ if (typeof module !== 'undefined' && module.exports) {
     });
     const data = JSON.parse(res.responseText);
     if (!data.link) throw new Error('No download link in response');
-    // OpenSubtitles' own docs are inconsistent about the exact field names for
-    // remaining daily quota, so log the raw response once here — check devtools
-    // console after a download to see what this account's response actually
-    // contains (commonly "remaining" / "requests" / "reset_time").
-    console.log('[DualSubs] OpenSubtitles /download response:', data);
+    console.log('[DualSubs] /download response:', data); // check real field names for quota here
     return { link: data.link, remaining: data.remaining, requests: data.requests, resetTime: data.reset_time };
   }
 
   async function fetchText(url) {
-    // responseType 'arraybuffer' so we control decoding ourselves — the
-    // subtitle file isn't always UTF-8 (see decodeSubtitleBytes).
+    // arraybuffer, not text — decodeSubtitleBytes handles non-UTF-8 files
     const res = await gmRequest({ method: 'GET', url, responseType: 'arraybuffer', timeout: 20000 });
     if (res.response instanceof ArrayBuffer && window.DualSubs && window.DualSubs.decodeSubtitleBytes) {
       return window.DualSubs.decodeSubtitleBytes(new Uint8Array(res.response));
@@ -288,6 +276,39 @@ if (typeof module !== 'undefined' && module.exports) {
     '| DecompressionStream supported:', typeof DecompressionStream !== 'undefined');
   const STORAGE_KEY = 'dualsubs:' + location.hostname + location.pathname + location.search;
   const API_KEY_STORAGE_KEY = 'dualsubs:opensubtitles-api-key';
+
+  // The video is often inside a cross-origin player iframe, whose own title
+  // is useless — ask the top frame for its title via postMessage instead.
+  if (window.top === window) {
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'dualsubs:get-title' && e.source) {
+        e.source.postMessage({ type: 'dualsubs:title', title: document.title }, '*');
+      }
+    });
+  }
+
+  function getBestTitle() {
+    if (window.top === window) {
+      return Promise.resolve(guessTitleFromPage());
+    }
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (title) => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('message', onMessage);
+        resolve(title);
+      };
+      const onMessage = (e) => {
+        if (e.data && e.data.type === 'dualsubs:title') {
+          finish(cleanTitle(e.data.title));
+        }
+      };
+      window.addEventListener('message', onMessage);
+      window.top.postMessage({ type: 'dualsubs:get-title' }, '*');
+      setTimeout(() => finish(guessTitleFromPage()), 500); // no reply — use our own title
+    });
+  }
 
   function withTimeout(promise, ms, label) {
     return new Promise((resolve, reject) => {
@@ -490,14 +511,16 @@ if (typeof module !== 'undefined' && module.exports) {
   // included in this build) — on the main/userscript MVP build it's absent
   // and these panel rows are simply not added (see buildPanel below).
 
-  function guessTitleFromPage() {
-    // Strip common site-name suffixes ("Dexter - Season 1 Episode 1 | SiteName")
-    // so the search query is closer to an actual title. Best-effort, not exact —
-    // the manual-load path stays as the reliable fallback either way.
-    let t = document.title
+  function cleanTitle(rawTitle) {
+    // strip trailing " - SiteName" / " | SiteName" junk
+    const t = (rawTitle || '')
       .replace(/\s*[|\-–—]\s*[^|\-–—]{1,40}$/, '')
       .trim();
-    return t || document.title;
+    return t || rawTitle || '';
+  }
+
+  function guessTitleFromPage() {
+    return cleanTitle(document.title);
   }
 
   function getApiKey(callback) {
@@ -512,17 +535,14 @@ if (typeof module !== 'undefined' && module.exports) {
     });
   }
 
-  function autoFindSubtitles(slot) {
+  async function autoFindSubtitles(slot) {
     if (!window.DualSubsAPI) {
       showToast('Auto-find is not available in this build.', true);
       return;
     }
-    getApiKey((apiKey) => {
+    getApiKey(async (apiKey) => {
       if (!apiKey) return;
-      // Title-guessing from document.title is unreliable across sites (some
-      // sites have junk or unrelated words in <title>), so always let the
-      // person confirm/fix it before we burn a search against the API.
-      const guessed = guessTitleFromPage();
+      const guessed = await getBestTitle(); // just a starting point, always editable below
       const query = window.prompt('Search OpenSubtitles for the ' + slot.toUpperCase() + ' track:', guessed);
       if (!query || !query.trim()) return;
       const defaultLang = slot === 'top' ? 'en' : 'ru';
@@ -583,8 +603,6 @@ if (typeof module !== 'undefined' && module.exports) {
           }
           applyCues(slot, text, r.releaseName + '.srt');
           overlay.remove();
-          // remaining/requests come straight from OpenSubtitles' /download response —
-          // shown only when that response actually includes them (see opensubtitles-api.js).
           if (typeof remaining === 'number') {
             showToast('OpenSubtitles downloads left today: ' + remaining + (typeof requests === 'number' ? ' / ' + requests : ''), false);
           }

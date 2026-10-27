@@ -21,6 +21,39 @@
   const STORAGE_KEY = 'dualsubs:' + location.hostname + location.pathname + location.search;
   const API_KEY_STORAGE_KEY = 'dualsubs:opensubtitles-api-key';
 
+  // The video is often inside a cross-origin player iframe, whose own title
+  // is useless — ask the top frame for its title via postMessage instead.
+  if (window.top === window) {
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'dualsubs:get-title' && e.source) {
+        e.source.postMessage({ type: 'dualsubs:title', title: document.title }, '*');
+      }
+    });
+  }
+
+  function getBestTitle() {
+    if (window.top === window) {
+      return Promise.resolve(guessTitleFromPage());
+    }
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (title) => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('message', onMessage);
+        resolve(title);
+      };
+      const onMessage = (e) => {
+        if (e.data && e.data.type === 'dualsubs:title') {
+          finish(cleanTitle(e.data.title));
+        }
+      };
+      window.addEventListener('message', onMessage);
+      window.top.postMessage({ type: 'dualsubs:get-title' }, '*');
+      setTimeout(() => finish(guessTitleFromPage()), 500); // no reply — use our own title
+    });
+  }
+
   function withTimeout(promise, ms, label) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(label + ' timed out after ' + (ms / 1000) + 's')), ms);
@@ -222,14 +255,16 @@
   // included in this build) — on the main/userscript MVP build it's absent
   // and these panel rows are simply not added (see buildPanel below).
 
-  function guessTitleFromPage() {
-    // Strip common site-name suffixes ("Dexter - Season 1 Episode 1 | SiteName")
-    // so the search query is closer to an actual title. Best-effort, not exact —
-    // the manual-load path stays as the reliable fallback either way.
-    let t = document.title
+  function cleanTitle(rawTitle) {
+    // strip trailing " - SiteName" / " | SiteName" junk
+    const t = (rawTitle || '')
       .replace(/\s*[|\-–—]\s*[^|\-–—]{1,40}$/, '')
       .trim();
-    return t || document.title;
+    return t || rawTitle || '';
+  }
+
+  function guessTitleFromPage() {
+    return cleanTitle(document.title);
   }
 
   function getApiKey(callback) {
@@ -244,17 +279,14 @@
     });
   }
 
-  function autoFindSubtitles(slot) {
+  async function autoFindSubtitles(slot) {
     if (!window.DualSubsAPI) {
       showToast('Auto-find is not available in this build.', true);
       return;
     }
-    getApiKey((apiKey) => {
+    getApiKey(async (apiKey) => {
       if (!apiKey) return;
-      // Title-guessing from document.title is unreliable across sites (some
-      // sites have junk or unrelated words in <title>), so always let the
-      // person confirm/fix it before we burn a search against the API.
-      const guessed = guessTitleFromPage();
+      const guessed = await getBestTitle(); // just a starting point, always editable below
       const query = window.prompt('Search OpenSubtitles for the ' + slot.toUpperCase() + ' track:', guessed);
       if (!query || !query.trim()) return;
       const defaultLang = slot === 'top' ? 'en' : 'ru';
@@ -315,8 +347,6 @@
           }
           applyCues(slot, text, r.releaseName + '.srt');
           overlay.remove();
-          // remaining/requests come straight from OpenSubtitles' /download response —
-          // shown only when that response actually includes them (see opensubtitles-api.js).
           if (typeof remaining === 'number') {
             showToast('OpenSubtitles downloads left today: ' + remaining + (typeof requests === 'number' ? ' / ' + requests : ''), false);
           }
