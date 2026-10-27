@@ -61,7 +61,12 @@
     });
     const data = JSON.parse(res.responseText);
     if (!data.link) throw new Error('No download link in response');
-    return data.link;
+    // OpenSubtitles' own docs are inconsistent about the exact field names for
+    // remaining daily quota, so log the raw response once here — check devtools
+    // console after a download to see what this account's response actually
+    // contains (commonly "remaining" / "requests" / "reset_time").
+    console.log('[DualSubs] OpenSubtitles /download response:', data);
+    return { link: data.link, remaining: data.remaining, requests: data.requests, resetTime: data.reset_time };
   }
 
   async function fetchText(url) {

@@ -251,8 +251,14 @@
     }
     getApiKey((apiKey) => {
       if (!apiKey) return;
-      const lang = slot === 'top' ? 'en' : 'ru';
-      const query = guessTitleFromPage();
+      // Title-guessing from document.title is unreliable across sites (some
+      // sites have junk or unrelated words in <title>), so always let the
+      // person confirm/fix it before we burn a search against the API.
+      const guessed = guessTitleFromPage();
+      const query = window.prompt('Search OpenSubtitles for the ' + slot.toUpperCase() + ' track:', guessed);
+      if (!query || !query.trim()) return;
+      const defaultLang = slot === 'top' ? 'en' : 'ru';
+      const lang = (window.prompt('Language code (ISO 639-1, e.g. en, ru, es):', defaultLang) || defaultLang).trim().toLowerCase();
       showToast('Searching OpenSubtitles for "' + query + '" (' + lang + ')...', false);
       window.DualSubsAPI.search(apiKey, query, lang)
         .then(results => {
@@ -299,7 +305,7 @@
       row.onclick = async () => {
         status.textContent = 'Downloading...';
         try {
-          const link = await window.DualSubsAPI.requestDownloadLink(apiKey, r.fileId);
+          const { link, remaining, requests } = await window.DualSubsAPI.requestDownloadLink(apiKey, r.fileId);
           const text = await window.DualSubsAPI.fetchText(link);
           const cues = parseSRT(text);
           if (cues.length === 0) {
@@ -309,6 +315,11 @@
           }
           applyCues(slot, text, r.releaseName + '.srt');
           overlay.remove();
+          // remaining/requests come straight from OpenSubtitles' /download response —
+          // shown only when that response actually includes them (see opensubtitles-api.js).
+          if (typeof remaining === 'number') {
+            showToast('OpenSubtitles downloads left today: ' + remaining + (typeof requests === 'number' ? ' / ' + requests : ''), false);
+          }
         } catch (err) {
           console.error('[DualSubs] OpenSubtitles download failed', err);
           status.textContent = 'Failed: ' + err.message;
