@@ -10,15 +10,18 @@ const path = require('path');
 const HEADER = `// ==UserScript==
 // @name         Dual Subs Anywhere
 // @namespace    https://github.com/v1tharr/dualsubs-anywhere
-// @version      0.2.5
+// @version      0.3.1
 // @description  Overlay two subtitle tracks (e.g. English + Russian) on top of any HTML5 video, on any site
 // @author       v1tharr
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
+// @connect      api.opensubtitles.com
+// @connect      www.opensubtitles.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js
-// @downloadURL  https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js
+// @updateURL    https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/feat/opensubtitles-api/dist/dualsubs-anywhere.user.js
+// @downloadURL  https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/feat/opensubtitles-api/dist/dualsubs-anywhere.user.js
 // ==/UserScript==
 
 `;
@@ -27,6 +30,7 @@ const FILES = [
   'src/storage-userscript.js',
   'src/srt-parser.js',
   'src/zip-lite.js',
+  'src/opensubtitles-api.js',
   'src/core.js'
 ];
 

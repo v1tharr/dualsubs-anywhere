@@ -1,15 +1,18 @@
 // ==UserScript==
 // @name         Dual Subs Anywhere
 // @namespace    https://github.com/v1tharr/dualsubs-anywhere
-// @version      0.2.5
+// @version      0.3.1
 // @description  Overlay two subtitle tracks (e.g. English + Russian) on top of any HTML5 video, on any site
 // @author       v1tharr
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
+// @connect      api.opensubtitles.com
+// @connect      www.opensubtitles.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js
-// @downloadURL  https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/main/dist/dualsubs-anywhere.user.js
+// @updateURL    https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/feat/opensubtitles-api/dist/dualsubs-anywhere.user.js
+// @downloadURL  https://raw.githubusercontent.com/v1tharr/dualsubs-anywhere/feat/opensubtitles-api/dist/dualsubs-anywhere.user.js
 // ==/UserScript==
 
 // Storage adapter for the Tampermonkey/userscript build.
@@ -179,6 +182,85 @@ if (typeof module !== 'undefined' && module.exports) {
 })();
 
 
+// OpenSubtitles REST API v1 client, built on GM_xmlhttpRequest (needed for
+// cross-origin requests from a userscript — a plain fetch() in the page's
+// own context can't reach api.opensubtitles.com due to CORS/CSP on most sites).
+// Search + download both work with just an API key on the shared free quota —
+// no login/JWT flow required for this.
+//
+// This file is concatenated into dist/dualsubs-anywhere.user.js by build.js.
+// Only included on the feat/opensubtitles-api build (needs @grant GM_xmlhttpRequest
+// and @connect api.opensubtitles.com / www.opensubtitles.com — see build.js).
+(function () {
+  'use strict';
+
+  const API_BASE = 'https://api.opensubtitles.com/api/v1';
+
+  function gmRequest(details) {
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        ...details,
+        onload: (res) => {
+          if (res.status >= 200 && res.status < 300) {
+            resolve(res);
+          } else {
+            reject(new Error('HTTP ' + res.status + ' for ' + details.url));
+          }
+        },
+        onerror: () => reject(new Error('Network error for ' + details.url)),
+        ontimeout: () => reject(new Error('Request timed out for ' + details.url))
+      });
+    });
+  }
+
+  // query: free-text title (from document.title, cleaned up by the caller)
+  // languages: comma-separated ISO 639-1 codes, e.g. "en" or "ru"
+  async function search(apiKey, query, languages) {
+    const params = new URLSearchParams({ query, languages });
+    const res = await gmRequest({
+      method: 'GET',
+      url: API_BASE + '/subtitles?' + params.toString(),
+      headers: { 'Api-Key': apiKey },
+      timeout: 15000
+    });
+    const data = JSON.parse(res.responseText);
+    return (data.data || []).map(item => ({
+      fileId: item.attributes?.files?.[0]?.file_id,
+      releaseName: item.attributes?.release || item.attributes?.feature_details?.title || 'Untitled',
+      language: item.attributes?.language,
+      downloadCount: item.attributes?.download_count || 0
+    })).filter(r => r.fileId);
+  }
+
+  async function requestDownloadLink(apiKey, fileId) {
+    const res = await gmRequest({
+      method: 'POST',
+      url: API_BASE + '/download',
+      headers: {
+        'Api-Key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      data: JSON.stringify({ file_id: fileId }),
+      timeout: 15000
+    });
+    const data = JSON.parse(res.responseText);
+    if (!data.link) throw new Error('No download link in response');
+    return data.link;
+  }
+
+  async function fetchText(url) {
+    // responseType 'arraybuffer' so we control decoding ourselves — the
+    // subtitle file isn't always UTF-8 (see decodeSubtitleBytes).
+    const res = await gmRequest({ method: 'GET', url, responseType: 'arraybuffer', timeout: 20000 });
+    if (res.response instanceof ArrayBuffer && window.DualSubs && window.DualSubs.decodeSubtitleBytes) {
+      return window.DualSubs.decodeSubtitleBytes(new Uint8Array(res.response));
+    }
+    return res.responseText;
+  }
+
+  window.DualSubsAPI = { search, requestDownloadLink, fetchText };
+})();
+
 // Shared core: finds <video> elements, overlays two subtitle tracks with a
 // small control panel. Storage-agnostic — relies on window.DualSubsStorage,
 // which each adapter (webext / userscript) sets up before this file runs.
@@ -200,6 +282,7 @@ if (typeof module !== 'undefined' && module.exports) {
   console.log('[DualSubs] core.js starting, zip reader available:', typeof window.DualSubsZip !== 'undefined',
     '| DecompressionStream supported:', typeof DecompressionStream !== 'undefined');
   const STORAGE_KEY = 'dualsubs:' + location.hostname + location.pathname + location.search;
+  const API_KEY_STORAGE_KEY = 'dualsubs:opensubtitles-api-key';
 
   function withTimeout(promise, ms, label) {
     return new Promise((resolve, reject) => {
@@ -397,6 +480,121 @@ if (typeof module !== 'undefined' && module.exports) {
     overlay.addEventListener('mousedown', e => e.stopPropagation());
   }
 
+  // ---------- OpenSubtitles auto-search ----------
+  // Only present when window.DualSubsAPI exists (opensubtitles-api.js was
+  // included in this build) — on the main/userscript MVP build it's absent
+  // and these panel rows are simply not added (see buildPanel below).
+
+  function guessTitleFromPage() {
+    // Strip common site-name suffixes ("Dexter - Season 1 Episode 1 | SiteName")
+    // so the search query is closer to an actual title. Best-effort, not exact —
+    // the manual-load path stays as the reliable fallback either way.
+    let t = document.title
+      .replace(/\s*[|\-–—]\s*[^|\-–—]{1,40}$/, '')
+      .trim();
+    return t || document.title;
+  }
+
+  function getApiKey(callback) {
+    window.DualSubsStorage.get(API_KEY_STORAGE_KEY, (key) => {
+      if (key) { callback(key); return; }
+      const entered = window.prompt(
+        'Enter your free OpenSubtitles API key (opensubtitles.com → Consumers → API):'
+      );
+      if (!entered) { callback(null); return; }
+      window.DualSubsStorage.set(API_KEY_STORAGE_KEY, entered);
+      callback(entered);
+    });
+  }
+
+  function autoFindSubtitles(slot) {
+    if (!window.DualSubsAPI) {
+      showToast('Auto-find is not available in this build.', true);
+      return;
+    }
+    getApiKey((apiKey) => {
+      if (!apiKey) return;
+      const lang = slot === 'top' ? 'en' : 'ru';
+      const query = guessTitleFromPage();
+      showToast('Searching OpenSubtitles for "' + query + '" (' + lang + ')...', false);
+      window.DualSubsAPI.search(apiKey, query, lang)
+        .then(results => {
+          if (results.length === 0) {
+            showToast('No results found for "' + query + '". Try loading a file manually.', true);
+            return;
+          }
+          showSearchResultsPicker(slot, apiKey, results);
+        })
+        .catch(err => {
+          console.error('[DualSubs] OpenSubtitles search failed', err);
+          showToast('Search failed: ' + err.message, true);
+        });
+    });
+  }
+
+  function showSearchResultsPicker(slot, apiKey, results) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed; inset: 0; z-index: 2147483647;
+      background: rgba(0,0,0,0.7); display: flex;
+      align-items: center; justify-content: center;
+    `;
+    const box = document.createElement('div');
+    box.style.cssText = `
+      background: #1a1a1a; color: #fff; padding: 16px; border-radius: 8px;
+      max-height: 70vh; overflow-y: auto; width: 420px; font: 13px Arial, sans-serif;
+    `;
+    const title = document.createElement('div');
+    title.textContent = `Pick a result for the ${slot.toUpperCase()} track:`;
+    title.style.cssText = 'margin-bottom: 10px; font-weight: bold;';
+    box.appendChild(title);
+
+    const status = document.createElement('div');
+    status.style.cssText = 'margin-bottom: 10px; font-size: 12px; min-height: 16px; color: #ccc;';
+    box.appendChild(status);
+
+    results.forEach(r => {
+      const row = document.createElement('div');
+      row.textContent = `[${r.language}] ${r.releaseName} (${r.downloadCount} downloads)`;
+      row.style.cssText = 'cursor:pointer; padding:6px 8px; border-radius:4px; word-break:break-all;';
+      row.onmouseenter = () => (row.style.background = 'rgba(255,255,255,0.15)');
+      row.onmouseleave = () => (row.style.background = 'transparent');
+      row.onclick = async () => {
+        status.textContent = 'Downloading...';
+        try {
+          const link = await window.DualSubsAPI.requestDownloadLink(apiKey, r.fileId);
+          const text = await window.DualSubsAPI.fetchText(link);
+          const cues = parseSRT(text);
+          if (cues.length === 0) {
+            status.textContent = 'This result had no readable subtitle lines — pick another.';
+            status.style.color = '#ff6b6b';
+            return;
+          }
+          applyCues(slot, text, r.releaseName + '.srt');
+          overlay.remove();
+        } catch (err) {
+          console.error('[DualSubs] OpenSubtitles download failed', err);
+          status.textContent = 'Failed: ' + err.message;
+          status.style.color = '#ff6b6b';
+        }
+      };
+      box.appendChild(row);
+    });
+
+    const cancel = document.createElement('div');
+    cancel.textContent = 'Cancel';
+    cancel.style.cssText = 'cursor:pointer; margin-top:10px; text-align:center; opacity:0.7;';
+    cancel.onclick = () => overlay.remove();
+    box.appendChild(cancel);
+
+    overlay.appendChild(box);
+    (getFullscreenElement() || document.body).appendChild(overlay);
+
+    overlay.addEventListener('click', e => e.stopPropagation());
+    overlay.addEventListener('dblclick', e => e.stopPropagation());
+    overlay.addEventListener('mousedown', e => e.stopPropagation());
+  }
+
   // ---------- panel UI ----------
   function buildPanel() {
     const btn = document.createElement('div');
@@ -442,8 +640,14 @@ if (typeof module !== 'undefined' && module.exports) {
 
     panel.appendChild(mkRow('Load TOP subtitles (.srt/.zip)', () => pickFile('top')));
     panel.appendChild(topStatus);
+    if (window.DualSubsAPI) {
+      panel.appendChild(mkRow('🔍 Auto-find TOP (OpenSubtitles)', () => autoFindSubtitles('top')));
+    }
     panel.appendChild(mkRow('Load BOTTOM subtitles (.srt/.zip)', () => pickFile('bottom')));
     panel.appendChild(bottomStatus);
+    if (window.DualSubsAPI) {
+      panel.appendChild(mkRow('🔍 Auto-find BOTTOM (OpenSubtitles)', () => autoFindSubtitles('bottom')));
+    }
 
     refreshStatus = () => {
       topStatus.textContent = topFileName ? ('✓ ' + topFileName) : '— not loaded';
