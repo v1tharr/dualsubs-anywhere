@@ -729,17 +729,24 @@
   }
 
   // Ignore tiny/offscreen <video> elements — hover-preview thumbnails on
-  // content grids, autoplay teasers, etc. Only the single
+  // YouTube/ grids, autoplay teasers, etc. Only the single
   // largest on-screen video on the page is treated as "the player".
-  const MIN_VIDEO_AREA = 200 * 150; // px^2 — comfortably above any thumbnail size
+  const MIN_VIDEO_WIDTH = 400;
+  const MIN_VIDEO_HEIGHT = 220; // comfortably above hover-preview thumbnail sizes on YT
+
+  function isActuallyVisible(el) {
+    const style = getComputedStyle(el);
+    return style.visibility !== 'hidden' && style.display !== 'none' && parseFloat(style.opacity) > 0;
+  }
 
   function pickMainVideo() {
     let best = null, bestArea = 0;
     document.querySelectorAll('video').forEach(v => {
       const r = v.getBoundingClientRect();
-      const area = r.width * r.height;
-      if (area < MIN_VIDEO_AREA) return; // too small to be the real player
+      if (r.width < MIN_VIDEO_WIDTH || r.height < MIN_VIDEO_HEIGHT) return; // too small to be the real player
       if (r.bottom < 0 || r.right < 0 || r.top > window.innerHeight || r.left > window.innerWidth) return; // offscreen
+      if (!isActuallyVisible(v)) return; // e.g. a hidden <video> some sites keep in the DOM
+      const area = r.width * r.height;
       if (area > bestArea) { bestArea = area; best = v; }
     });
     return best;
