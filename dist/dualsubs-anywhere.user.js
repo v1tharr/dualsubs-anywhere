@@ -984,9 +984,7 @@ if (typeof module !== 'undefined' && module.exports) {
     bottomBox.textContent = findCue(bottomCues, t + bottomOffset);
   }
 
-  // Ignore tiny/offscreen <video> elements — hover-preview thumbnails on
-  // YouTube/ grids, autoplay teasers, etc. Only the single
-  // largest on-screen video on the page is treated as "the player".
+    // skip hover previews and hidden videos, the largest visible one is the player
   const MIN_VIDEO_WIDTH = 400;
   const MIN_VIDEO_HEIGHT = 220; // comfortably above hover-preview thumbnail sizes on YT
 
