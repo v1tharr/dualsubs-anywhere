@@ -699,7 +699,8 @@
       box.style.cssText = `
         color: #fff; background: rgba(0,0,0,0.6);
         padding: 2px 10px; margin: 2px 0; border-radius: 4px;
-        font-size: ${fontSize}px; text-align: center; max-width: 90%;
+        font-size: ${fontSize}px; line-height: 1.3; flex-shrink: 0;
+        text-align: center; max-width: 90%;
         text-shadow: 1px 1px 2px #000; white-space: pre-line;
       `;
     }
