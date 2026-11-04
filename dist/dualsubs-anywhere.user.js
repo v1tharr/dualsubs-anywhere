@@ -1007,18 +1007,26 @@ if (typeof module !== 'undefined' && module.exports) {
     return best;
   }
 
-  function scan() {
+  function scan(full) {
+    // already attached to a live <video>: don't re-measure on every DOM change
+    if (!full && currentVideo && currentVideo.isConnected) return;
     const video = pickMainVideo();
-    if (!video) return; // nothing qualifies yet (page still loading, or only thumbnails present)
+    if (!video) return;
     if (video.readyState >= 1 || video.src || video.currentSrc) {
       ensureOverlay(video);
     }
   }
 
+  let scanQueued = false;
+  function scheduleScan() {
+    if (scanQueued) return;
+    scanQueued = true;
+    setTimeout(() => { scanQueued = false; scan(false); }, 1000);
+  }
+
   loadSaved(() => {
-    scan();
-    const observer = new MutationObserver(scan);
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    setInterval(scan, 2000);
+    scan(true);
+    new MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
+    setInterval(() => scan(true), 3000);
   });
 })();
