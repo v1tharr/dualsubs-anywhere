@@ -16,6 +16,8 @@ const HEADER = `// ==UserScript==
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @connect      api.opensubtitles.com
 // @connect      www.opensubtitles.com

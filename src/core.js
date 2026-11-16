@@ -2,7 +2,7 @@
 // small control panel. Storage-agnostic — relies on window.DualSubsStorage,
 // which each adapter (webext / userscript) sets up before this file runs.
 
-(function () {
+(async function () {
   'use strict';
 
   if (window.__dualSubsInitialized) {
@@ -10,6 +10,60 @@
     return;
   }
   window.__dualSubsInitialized = true;
+
+    if (window.top === window) {
+    window.addEventListener('message', (e) => {
+      if (e.data?.type === 'dualsubs:get-site' && e.source) {
+        e.source.postMessage({ type: 'dualsubs:site' }, '*');
+      }
+    });
+  }
+
+  function getSiteHostname() {
+    if (window.top === window) return location.hostname;
+
+    return new Promise((resolve) => {
+      const requestSite = () => {
+        window.top.postMessage({ type: 'dualsubs:get-site' }, '*');
+      };
+
+      const finish = (hostname) => {
+        clearInterval(retry);
+        clearTimeout(timeout);
+        window.removeEventListener('message', onMessage);
+        resolve(hostname);
+      };
+
+      const onMessage = (e) => {
+        if (e.source !== window.top || e.data?.type !== 'dualsubs:site') return;
+        if (e.origin === 'null') return;
+        finish(new URL(e.origin).hostname);
+      };
+
+      window.addEventListener('message', onMessage);
+      const retry = setInterval(requestSite, 250);
+      const timeout = setTimeout(() => finish(location.hostname), 2000);
+      requestSite();
+    });
+  }
+
+  const hostname = await getSiteHostname();
+  const disabledKey = 'dualsubs:disabled-site:' + hostname;
+  const disabled = GM_getValue(disabledKey, false);
+
+  if (window.top === window) {
+    const label = (disabled ? 'Enable on ' : 'Disable on ') + hostname;
+    GM_registerMenuCommand(label, () => {
+      if (disabled) {
+        GM_deleteValue(disabledKey);
+      } else {
+        GM_setValue(disabledKey, true);
+      }
+      location.reload();
+    });
+  }
+
+  if (disabled) return;
 
   if (!window.DualSubs) {
     console.error('[DualSubs] window.DualSubs is missing — srt-parser.js did not attach correctly. Aborting.');
