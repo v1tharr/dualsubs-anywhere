@@ -127,7 +127,9 @@
   let bottomPositionOffset = 0;
   let topBox, bottomBox, wrap, currentVideo;
   let btnEl, panelEl;
+  let onSubtitleKeydown;
   let visible = true;
+  let topVisible = true, bottomVisible = true;
   let activeSlot = null; // 'top' | 'bottom' — which slot a zip-picker choice applies to
   let refreshStatus = () => {}; // wired up once the panel exists
 
@@ -145,6 +147,8 @@
         topPositionOffset = data.topPositionOffset ?? 0;
         bottomPositionOffset = data.bottomPositionOffset ?? 0;
         visible = data.visible !== false;
+        topVisible = data.topVisible !== false;
+        bottomVisible = data.bottomVisible !== false;
       }
       callback();
     });
@@ -155,7 +159,8 @@
       top: topCues, bottom: bottomCues,
       topOffset, bottomOffset,
       topFileName, bottomFileName,
-      fontSize, subPosition, topPositionOffset, bottomPositionOffset, visible
+      fontSize, subPosition, topPositionOffset, bottomPositionOffset,
+      visible, topVisible, bottomVisible
     });
   }
 
@@ -672,19 +677,36 @@
       bottomPositionOffset = clamp(bottomPositionOffset + delta, 5 - subPosition, 95 - subPosition);
     }, formatOffset));
 
-    const toggleRow = document.createElement('label');
-    toggleRow.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px; cursor:pointer;';
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = visible;
-    checkbox.onchange = () => { setVisible(checkbox.checked); paintBtn(); };
-    toggleRow.appendChild(checkbox);
-    toggleRow.appendChild(document.createTextNode('Show subtitles'));
-    panel.appendChild(toggleRow);
+    const addToggle = (label, checked, onChange) => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px; cursor:pointer;';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = checked;
+      checkbox.onchange = () => onChange(checkbox.checked);
+      row.appendChild(checkbox);
+      row.appendChild(document.createTextNode(label));
+      panel.appendChild(row);
+      return checkbox;
+    };
+
+    const toggleSubtitles = checked => { setVisible(checked); paintBtn(); };
+    const checkbox = addToggle('Show subtitles', visible, toggleSubtitles);
+    addToggle('Show TOP', topVisible, checked => {
+      topVisible = checked;
+      updateSubs();
+      save();
+    });
+    addToggle('Show BOTTOM', bottomVisible, checked => {
+      bottomVisible = checked;
+      updateSubs();
+      save();
+    });
 
     panel.appendChild(mkRow('Clear subtitles', () => {
       topCues = []; bottomCues = []; topOffset = 0; bottomOffset = 0;
       topFileName = null; bottomFileName = null;
+      updateSubs();
       save(); refreshStatus();
     }));
 
@@ -706,13 +728,14 @@
       el.addEventListener('mousedown', e => e.stopPropagation());
     });
 
-    document.addEventListener('keydown', e => {
+    if (onSubtitleKeydown) document.removeEventListener('keydown', onSubtitleKeydown);
+    onSubtitleKeydown = e => {
       if (e.altKey && e.key.toLowerCase() === 's') {
         checkbox.checked = !checkbox.checked;
-        setVisible(checkbox.checked);
-        paintBtn();
+        toggleSubtitles(checkbox.checked);
       }
-    });
+    };
+    document.addEventListener('keydown', onSubtitleKeydown);
   }
 
   // ---------- positioning (fixed, computed from the video's on-screen rect) ----------
@@ -799,7 +822,7 @@
     reparentForFullscreen(); // in case we attach while already in fullscreen
 
     video.addEventListener('timeupdate', updateSubs);
-    positionElements();
+    updateSubs();
 
     if (!window.__dualSubsGlobalListenersAttached) {
       window.__dualSubsGlobalListenersAttached = true;
@@ -812,8 +835,12 @@
   function updateSubs() {
     if (!currentVideo) return;
     const t = currentVideo.currentTime;
-    topBox.textContent = findCue(topCues, t + topOffset);
-    bottomBox.textContent = findCue(bottomCues, t + bottomOffset);
+    const topText = findCue(topCues, t + topOffset);
+    const bottomText = findCue(bottomCues, t + bottomOffset);
+    topBox.textContent = topText;
+    bottomBox.textContent = bottomText;
+    topBox.style.visibility = topVisible && topText ? 'visible' : 'hidden';
+    bottomBox.style.visibility = bottomVisible && bottomText ? 'visible' : 'hidden';
   }
 
     // skip hover previews and hidden videos, the largest visible one is the player

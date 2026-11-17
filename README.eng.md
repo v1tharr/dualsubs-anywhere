@@ -6,7 +6,7 @@
 
 Overlay two subtitle tracks (e.g. English + Russian) on top of any HTML5 video, on any site — no downloading the video, no re-uploading subtitles every time.
 
-Status: v0.3, actively used and iterated on.
+Status: v0.4, actively used and iterated on.
 
 Ships as a single Tampermonkey/Violentmonkey userscript, built from a small set of source files (`src/`) so the logic stays testable and organized rather than living in one giant file. No third-party runtime dependencies — zip files are parsed and decompressed with a small built-in reader on top of the browser's native `DecompressionStream`.
 
@@ -23,7 +23,8 @@ Updates are automatic — the script checks the same link for a newer `@version`
 - Two independent subtitle tracks (top/bottom), each with its own `.srt`/`.zip` loader and status indicator
 - Per-track timing offset (±0.5s buttons) — nudge into sync without knowing the exact release
 - Adjustable font size and vertical position, saved per page
-- Show/hide toggle (`Alt+S` or the CC button)
+- In the `CC` panel, move both tracks together or adjust and hide each track separately. `Alt+S` hides all subtitles and restores the selected tracks.
+- To disable the script on the current site, open the Tampermonkey or Violentmonkey menu and choose `Disable on …` under Dual Subs Anywhere. Use `Enable on …` in the same menu to turn it back on.
 - Works in fullscreen — the panel follows the video into and out of fullscreen mode
 -  Auto-find subtitles via OpenSubtitles — requires your own free API key (opensubtitles.com → Profile → API Consumers), pick language from a dropdown
 - Settings persist per page (URL + query), so switching episodes doesn't carry over the wrong subtitles
