@@ -381,6 +381,8 @@ if (typeof module !== 'undefined' && module.exports) {
   let topFileName = null, bottomFileName = null;
   let fontSize = 20;
   let subPosition = 75; // % from top of video where the subtitle block sits
+  let topPositionOffset = 0;
+  let bottomPositionOffset = 0;
   let topBox, bottomBox, wrap, currentVideo;
   let btnEl, panelEl;
   let visible = true;
@@ -398,6 +400,8 @@ if (typeof module !== 'undefined' && module.exports) {
         bottomFileName = data.bottomFileName || null;
         fontSize = data.fontSize || 20;
         subPosition = data.subPosition || 75;
+        topPositionOffset = data.topPositionOffset ?? 0;
+        bottomPositionOffset = data.bottomPositionOffset ?? 0;
         visible = data.visible !== false;
       }
       callback();
@@ -409,7 +413,7 @@ if (typeof module !== 'undefined' && module.exports) {
       top: topCues, bottom: bottomCues,
       topOffset, bottomOffset,
       topFileName, bottomFileName,
-      fontSize, subPosition, visible
+      fontSize, subPosition, topPositionOffset, bottomPositionOffset, visible
     });
   }
 
@@ -882,22 +886,49 @@ if (typeof module !== 'undefined' && module.exports) {
     fontRow.appendChild(fVal); fontRow.appendChild(fMinus); fontRow.appendChild(fPlus);
     panel.appendChild(fontRow);
 
-    // vertical position control
-    const posRow = document.createElement('div');
-    posRow.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px;';
-    const pUp = document.createElement('span');
-    pUp.textContent = '▲';
-    pUp.style.cssText = 'cursor:pointer; padding:2px 6px; background:rgba(255,255,255,0.1); border-radius:3px;';
-    const pDown = document.createElement('span');
-    pDown.textContent = '▼';
-    pDown.style.cssText = pUp.style.cssText;
-    const pVal = document.createElement('span');
-    const refreshPos = () => { pVal.textContent = 'Position: ' + subPosition + '%'; };
-    pUp.onclick = () => { subPosition = Math.max(5, subPosition - 5); refreshPos(); save(); positionElements(); };
-    pDown.onclick = () => { subPosition = Math.min(95, subPosition + 5); refreshPos(); save(); positionElements(); };
-    refreshPos();
-    posRow.appendChild(pVal); posRow.appendChild(pUp); posRow.appendChild(pDown);
-    panel.appendChild(posRow);
+    const positionRow = (label, get, move, format) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px;';
+
+      const value = document.createElement('span');
+      const refresh = () => { value.textContent = label + ': ' + format(get()); };
+      row.appendChild(value);
+
+      for (const [text, delta, direction] of [['▲', -5, 'up'], ['▼', 5, 'down']]) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = text;
+        button.setAttribute('aria-label', label + ' ' + direction);
+        button.style.cssText = 'cursor:pointer; padding:2px 6px; background:rgba(255,255,255,0.1); border:0; border-radius:3px; color:inherit; font:inherit;';
+        button.onclick = () => {
+          move(delta);
+          refresh();
+          save();
+          positionElements();
+        };
+        row.appendChild(button);
+      }
+
+      refresh();
+      return row;
+    };
+
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+    const formatOffset = value => (value > 0 ? '+' : '') + value + '%';
+
+    panel.appendChild(positionRow('Position', () => subPosition, delta => {
+      const min = 5 - Math.min(0, topPositionOffset, bottomPositionOffset);
+      const max = 95 - Math.max(0, topPositionOffset, bottomPositionOffset);
+      subPosition = clamp(subPosition + delta, min, max);
+    }, value => value + '%'));
+
+    panel.appendChild(positionRow('Top position', () => topPositionOffset, delta => {
+      topPositionOffset = clamp(topPositionOffset + delta, 5 - subPosition, 95 - subPosition);
+    }, formatOffset));
+
+    panel.appendChild(positionRow('Bottom position', () => bottomPositionOffset, delta => {
+      bottomPositionOffset = clamp(bottomPositionOffset + delta, 5 - subPosition, 95 - subPosition);
+    }, formatOffset));
 
     const toggleRow = document.createElement('label');
     toggleRow.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px; cursor:pointer;';
@@ -951,6 +982,8 @@ if (typeof module !== 'undefined' && module.exports) {
     wrap.style.left = r.left + 'px';
     wrap.style.width = r.width + 'px';
     wrap.style.top = (r.top + r.height * (subPosition / 100)) + 'px';
+    topBox.style.top = (r.height * topPositionOffset / 100) + 'px';
+    bottomBox.style.top = (r.height * bottomPositionOffset / 100) + 'px';
 
     if (btnEl) {
       btnEl.style.left = (r.left + 8) + 'px';
@@ -1012,7 +1045,7 @@ if (typeof module !== 'undefined' && module.exports) {
         color: #fff; background: rgba(0,0,0,0.6);
         padding: 2px 10px; margin: 2px 0; border-radius: 4px;
         font-size: ${fontSize}px; line-height: 1.3; flex-shrink: 0;
-        text-align: center; max-width: 90%;
+        position: relative; text-align: center; max-width: 90%;
         text-shadow: 1px 1px 2px #000; white-space: pre-line;
       `;
     }
